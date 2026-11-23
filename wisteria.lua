@@ -1,6 +1,6 @@
--- Wisteria Hub v3.0: deliberate target selection with no unexpected handoffs.
+-- Wisteria Hub v3.2: catalog-limited horn previews and reversible cosmetic tools.
 -- No remote downloads or inventory actions; executor mouse support is optional.
-warn("[Wisteria Hub] v3.0 starting")
+warn("[Wisteria Hub] v3.2 starting")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -114,7 +114,7 @@ new("UICorner", {CornerRadius=UDim.new(0,15)}, panel)
 local stroke = new("UIStroke", {Color=accent, Thickness=1}, panel)
 
 local bar = new("Frame", {Size=UDim2.new(1,0,0,46), BackgroundTransparency=1, Active=true}, panel)
-new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.0", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
+new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.2", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
 do
 local close = new("TextButton", {Size=UDim2.fromOffset(30,28), Position=UDim2.new(1,-40,0,9), Text="×", TextSize=22, TextColor3=Color3.new(1,1,1), BackgroundColor3=Color3.fromRGB(36,36,36)}, bar)
 new("UICorner", {CornerRadius=UDim.new(0,6)}, close)
@@ -2419,8 +2419,308 @@ page("Settings", function()
     end)
 end)
 
+-- Optional, client-side player camera and cosmetic tools.
+-- None of these features send damage, inventory or remote requests.
+local playerTools={picked=nil,mode="Off",freecam=false,freePosition=nil,freeYaw=0,freePitch=0,
+    tracer=false,ghost=false,freezePreview=false,horns=nil,decor={},savedLocal={},
+    sessionStart=os.clock(),freeSpeed=45,antiAFK=false,following=false}
+local camera=workspace.CurrentCamera
+local originalCamera={type=nil,subject=nil,fov=nil}
+local function playerRoot(plr)
+    local character=plr and plr.Character
+    return character and character:FindFirstChild("HumanoidRootPart")
+end
+local function resolvePlayer(query)
+    query=tostring(query or ""):lower():gsub("^%s+",""):gsub("%s+$","")
+    if query=="" then return nil end
+    local match
+    for _,plr in ipairs(Players:GetPlayers()) do
+        if plr~=player then
+            if plr.Name:lower()==query or plr.DisplayName:lower()==query then return plr end
+            if not match and (plr.Name:lower():sub(1,#query)==query or plr.DisplayName:lower():sub(1,#query)==query) then match=plr end
+        end
+    end
+    return match
+end
+local function restoreCamera()
+    camera=workspace.CurrentCamera or camera
+    if not camera then return end
+    camera.CameraType=Enum.CameraType.Custom
+    local humanoid=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+    if humanoid then camera.CameraSubject=humanoid end
+    if originalCamera.fov then camera.FieldOfView=originalCamera.fov end
+    playerTools.mode="Off";playerTools.freecam=false
+end
+local function setCameraMode(mode)
+    if mode=="Off" then restoreCamera();return end
+    camera=workspace.CurrentCamera or camera
+    if not camera then return end
+    local target=playerTools.picked
+    if mode~="Freecam" and not (target and target.Character and playerRoot(target)) then
+        restoreCamera();return
+    end
+    if playerTools.mode=="Off" then
+        originalCamera.type=camera.CameraType
+        originalCamera.subject=camera.CameraSubject
+        originalCamera.fov=camera.FieldOfView
+    end
+    playerTools.mode=mode
+    playerTools.freecam=(mode=="Freecam")
+    if mode=="Freecam" then
+        playerTools.freePosition=camera.CFrame.Position
+        local look=camera.CFrame.LookVector
+        playerTools.freePitch=math.asin(math.clamp(look.Y,-1,1))
+        playerTools.freeYaw=math.atan2(-look.X,-look.Z)
+        camera.CameraType=Enum.CameraType.Scriptable
+    elseif mode=="First-person" then
+        camera.CameraType=Enum.CameraType.Scriptable
+    else
+        camera.CameraType=Enum.CameraType.Custom
+        camera.CameraSubject=target.Character:FindFirstChildOfClass("Humanoid")
+    end
+end
+local tracerGui=new("ScreenGui",{Name="WisteriaTracer",ResetOnSpawn=false,DisplayOrder=3,IgnoreGuiInset=true},parent)
+local tracerLine=new("Frame",{Size=UDim2.fromOffset(2,2),AnchorPoint=Vector2.new(.5,.5),BackgroundColor3=accent,BorderSizePixel=0,Visible=false},tracerGui)
+local tracerElapsed=0
+track(RunService.RenderStepped:Connect(function(dt)
+    if not camera or camera~=workspace.CurrentCamera then camera=workspace.CurrentCamera end
+    if not camera then return end
+    if playerTools.mode=="First-person" then
+        local head=playerTools.picked and playerTools.picked.Character and playerTools.picked.Character:FindFirstChild("Head")
+        if head then camera.CFrame=head.CFrame else restoreCamera() end
+    elseif playerTools.mode=="Third-person" then
+        local hum=playerTools.picked and playerTools.picked.Character and playerTools.picked.Character:FindFirstChildOfClass("Humanoid")
+        if not hum then restoreCamera() elseif camera.CameraSubject~=hum then camera.CameraSubject=hum end
+    elseif playerTools.mode=="Freecam" then
+        local speed=playerTools.freeSpeed*dt
+        local direction=Vector3.zero
+        if UserInputService:GetFocusedTextBox()==nil then
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction+=Vector3.new(0,0,-1) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction+=Vector3.new(0,0,1) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction+=Vector3.new(-1,0,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction+=Vector3.new(1,0,0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then direction+=Vector3.yAxis end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then direction-=Vector3.yAxis end
+        end
+        local rotation=CFrame.fromEulerAnglesYXZ(playerTools.freePitch,playerTools.freeYaw,0)
+        if direction.Magnitude>0 then playerTools.freePosition+=rotation:VectorToWorldSpace(direction.Unit)*speed end
+        camera.CFrame=CFrame.new(playerTools.freePosition)*rotation
+    end
+    tracerElapsed+=dt
+    if tracerElapsed<.08 then return end
+    tracerElapsed=0;tracerLine.Visible=false
+    local root=playerRoot(playerTools.picked)
+    if playerTools.tracer and root then
+        local pos,onScreen=camera:WorldToViewportPoint(root.Position)
+        if onScreen and pos.Z>0 then
+            local start=Vector2.new(camera.ViewportSize.X*.5,camera.ViewportSize.Y)
+            local target=Vector2.new(pos.X,pos.Y)
+            local delta=target-start
+            tracerLine.BackgroundColor3=accent
+            tracerLine.Position=UDim2.fromOffset((start.X+target.X)*.5,(start.Y+target.Y)*.5)
+            tracerLine.Size=UDim2.fromOffset(delta.Magnitude,2)
+            tracerLine.Rotation=math.deg(math.atan2(delta.Y,delta.X))
+            tracerLine.Visible=true
+        end
+    end
+end))
+track(UserInputService.InputChanged:Connect(function(input)
+    if playerTools.mode=="Freecam" and input.UserInputType==Enum.UserInputType.MouseMovement
+        and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        playerTools.freeYaw-=input.Delta.X*.003
+        playerTools.freePitch=math.clamp(playerTools.freePitch-input.Delta.Y*.003,-1.5,1.5)
+    end
+end))
+local function setGhost(enabled)
+    playerTools.ghost=enabled
+    for part,original in pairs(playerTools.savedLocal) do
+        if part.Parent then pcall(function() part.LocalTransparencyModifier=original end) end
+        playerTools.savedLocal[part]=nil
+    end
+    if enabled and player.Character then
+        for _,item in ipairs(player.Character:GetDescendants()) do
+            if item:IsA("BasePart") then
+                playerTools.savedLocal[item]=item.LocalTransparencyModifier
+                item.LocalTransparencyModifier=.95
+            end
+        end
+    end
+end
+track(player.CharacterAdded:Connect(function()
+    restoreCamera();playerTools.savedLocal={}
+    if playerTools.ghost then task.defer(function() setGhost(true) end) end
+end))
+local function clearHorns()
+    for _,obj in ipairs(playerTools.decor) do if obj.Parent then obj:Destroy() end end
+    table.clear(playerTools.decor);playerTools.horns=nil
+end
+local catalogHorns={
+    ["Fiery Horns of the Netherworld"]=215718515,
+    ["Frozen Horns of the Frigid Planes"]=74891470,
+    ["Poisoned Horns of the Toxic Wasteland"]=1744060292,
+}
+local function makeHorns(style)
+    clearHorns()
+    local assetId=catalogHorns[style]
+    if not assetId then return false,"Unknown limited" end
+    local character=player.Character
+    local humanoid=character and character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return false,"Character unavailable" end
+    -- Some Roblox clients/executors restrict catalog asset loading. Fail visibly.
+    local ok,models=pcall(function() return game:GetObjects("rbxassetid://"..assetId) end)
+    if not ok or type(models)~="table" then return false,"Catalog asset loading is blocked" end
+    local accessory
+    for _,model in ipairs(models) do
+        if model:IsA("Accessory") then accessory=model
+        else accessory=model:FindFirstChildWhichIsA("Accessory",true) end
+        if accessory then
+            accessory.Parent=nil
+            break
+        end
+    end
+    for _,model in ipairs(models) do if model~=accessory then model:Destroy() end end
+    if not accessory then return false,"The catalog item did not provide an accessory" end
+    accessory.Name="WisteriaPreview_"..style
+    local equipped=pcall(function() humanoid:AddAccessory(accessory) end)
+    if not equipped then accessory:Destroy();return false,"Could not attach the accessory" end
+    playerTools.horns=style
+    table.insert(playerTools.decor,accessory)
+    return true,"Preview applied locally"
+end
+track(Players.PlayerRemoving:Connect(function(plr)
+    if playerTools.picked==plr then playerTools.picked=nil;restoreCamera() end
+end))
+track(player.Idled:Connect(function()
+    if not playerTools.antiAFK then return end
+    pcall(function()
+        local vu=game:GetService("VirtualUser")
+        vu:CaptureController()
+        vu:ClickButton2(Vector2.zero)
+    end)
+end))
+local followElapsed=0
+track(RunService.Heartbeat:Connect(function(dt)
+    if not playerTools.following then return end
+    followElapsed+=dt
+    if followElapsed<.4 then return end
+    followElapsed=0
+    local root=playerRoot(playerTools.picked)
+    local hum=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+    if root and hum and hum.Health>0 then
+        hum:MoveTo(root.Position-Vector3.new(0,0,4))
+    else playerTools.following=false end
+end))
+page("Players + Spectate",function()
+    label("Pick a player in this server by username or display name.",46)
+    local input=valueInput(playerTools.picked and playerTools.picked.Name or "",function() end)
+    local status=label(playerTools.picked and ("Selected: "..playerTools.picked.Name) or "No player selected",38)
+    button("Find player",function()
+        playerTools.picked=resolvePlayer(input.Text)
+        status.Text=playerTools.picked and ("Selected: "..playerTools.picked.Name) or "Not found in this server"
+    end)
+    button("Nearest player",function()
+        local root=playerRoot(player)
+        local nearest,distance=nil,math.huge
+        if root then for _,plr in ipairs(Players:GetPlayers()) do
+            local other=plr~=player and playerRoot(plr)
+            if other and (other.Position-root.Position).Magnitude<distance then
+                distance=(other.Position-root.Position).Magnitude;nearest=plr
+            end
+        end end
+        playerTools.picked=nearest
+        status.Text=nearest and ("Selected: "..nearest.Name) or "No nearby player"
+    end)
+    button("Next player",function()
+        local pool={}
+        for _,plr in ipairs(Players:GetPlayers()) do if plr~=player then table.insert(pool,plr) end end
+        table.sort(pool,function(a,b) return a.Name<b.Name end)
+        if #pool==0 then status.Text="No players available";return end
+        local index=table.find(pool,playerTools.picked) or 0
+        playerTools.picked=pool[index%#pool+1]
+        status.Text="Selected: "..playerTools.picked.Name
+    end)
+    button("Spectate: third-person",function() setCameraMode("Third-person") end)
+    button("Spectate: first-person",function() setCameraMode("First-person") end)
+    button("Stop spectating / restore camera",restoreCamera)
+    local tracerButton
+    tracerButton=button("Selected-player tracer: "..(playerTools.tracer and "ON" or "OFF"),function()
+        playerTools.tracer=not playerTools.tracer
+        tracerButton.Text="Selected-player tracer: "..(playerTools.tracer and "ON" or "OFF")
+    end)
+    button("Copy selected username",function()
+        if playerTools.picked and type(setclipboard)=="function" then setclipboard(playerTools.picked.Name) end
+    end)
+    button("Teleport to selected player",function()
+        local root=playerRoot(player);local target=playerRoot(playerTools.picked)
+        if root and target then root.CFrame=target.CFrame*CFrame.new(0,0,4) end
+    end)
+    local followButton
+    followButton=button("Follow selected: OFF",function()
+        playerTools.following=not playerTools.following
+        followButton.Text="Follow selected: "..(playerTools.following and "ON" or "OFF")
+    end)
+    button("Show selected distance",function()
+        local a,b=playerRoot(player),playerRoot(playerTools.picked)
+        status.Text=a and b and string.format("%.0f studs away", (a.Position-b.Position).Magnitude) or "Player not available"
+    end)
+    label("Spectate and tracers are visual only. Remote damage, bringing players and server-wide freezing aren't implemented.",70)
+end)
+page("Freecam",function()
+    label("Explore without moving your avatar. Hold RIGHT MOUSE to look; WASD to move; Space/Ctrl up/down.",65)
+    button("Start Freecam",function() setCameraMode("Freecam") end)
+    button("Exit Freecam / restore camera",restoreCamera)
+    numericSlider("Freecam speed",10,150,playerTools.freeSpeed,5,function(v) playerTools.freeSpeed=v end)
+    label("Your character stays where it is. Freecam does not make it invisible to other players.",58)
+end)
+page("Cosmetics",function()
+    label("Client-side avatar effects (other players may not see them).",42)
+    local ghostButton
+    ghostButton=button("Ghost appearance: "..(playerTools.ghost and "ON" or "OFF"),function()
+        setGhost(not playerTools.ghost)
+        ghostButton.Text="Ghost appearance: "..(playerTools.ghost and "ON" or "OFF")
+    end)
+    label("Ghost hides your body, accessories and equipped tools from YOUR view only.",48)
+    label("Roblox LIMITED horns • catalog designs, not generic shapes",45)
+    local hornStatus=label("Choose a limited below to preview it.",43)
+    for _,style in ipairs({
+        "Fiery Horns of the Netherworld",
+        "Frozen Horns of the Frigid Planes",
+        "Poisoned Horns of the Toxic Wasteland",
+    }) do
+        button(style,function()
+            local ok,message=makeHorns(style)
+            hornStatus.Text=ok and ("Equipped preview: "..style) or ("Can't load: "..message)
+        end)
+    end
+    button("Remove horns",clearHorns)
+    button("Restore my avatar visuals",function()setGhost(false);clearHorns();restoreCamera() end)
+    label("These are local accessory previews and may be blocked by Roblox. Other players won't see them unless the game's server equips them.",75)
+end)
+page("Session + Safety",function()
+    local minutes=math.floor((os.clock()-playerTools.sessionStart)/60)
+    label("Player: "..player.Name.." • Session: "..minutes.." min",40)
+    local ping=math.floor(player:GetNetworkPing()*1000)
+    label("Estimated ping: "..ping.." ms",35)
+    local afkButton
+    afkButton=button("Anti-AFK: "..(playerTools.antiAFK and "ON" or "OFF"),function()
+        playerTools.antiAFK=not playerTools.antiAFK
+        afkButton.Text="Anti-AFK: "..(playerTools.antiAFK and "ON" or "OFF")
+    end)
+    button("Restore camera + character",function()
+        restoreCamera();setGhost(false);clearHorns();playerTools.tracer=false;playerTools.following=false
+    end)
+    button("Rejoin current game",function()
+        local ok,err=pcall(function()
+            game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId,game.JobId,player)
+        end)
+        if not ok then warn("[Wisteria Hub] Rejoin failed: "..tostring(err)) end
+    end)
+    button("Leave server",function() player:Kick("Left using Wisteria Hub") end)
+    label("Server-wide freeze and true player invisibility require server behavior not verified by these screenshots.",63)
+end)
+
 tabs[1].TextColor3=accent
-label("Wisteria Hub v3.0",36)
+label("Wisteria Hub v3.2",36)
 label("Choose Main again to open Target Aim settings.",44)
 label(opt.menuKeyName.." or the floating Menu button: hide/show.",36)
 
@@ -2486,6 +2786,11 @@ local stopped=false
 local function shutdown()
     if stopped then return end
     stopped=true
+    restoreCamera()
+    playerTools.following=false
+    setGhost(false)
+    clearHorns()
+    if tracerGui.Parent then tracerGui:Destroy() end
     RunService:UnbindFromRenderStep(aimRenderBinding)
     for _,connection in ipairs(liveConnections) do connection:Disconnect() end
     restoreAllHitboxes()
@@ -2507,4 +2812,4 @@ local function shutdown()
     if toggleGui.Parent then toggleGui:Destroy() end
 end
 environment.PurrvotionCleanup=shutdown
-print("[Wisteria Hub] v3.0 ready")
+print("[Wisteria Hub] v3.2 ready")
