@@ -1,6 +1,6 @@
--- Wisteria Hub v3.2: catalog-limited horn previews and reversible cosmetic tools.
+-- Wisteria Hub v3.3: larger responsive menu and scrollable navigation.
 -- No remote downloads or inventory actions; executor mouse support is optional.
-warn("[Wisteria Hub] v3.2 starting")
+warn("[Wisteria Hub] v3.3 starting")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -109,12 +109,12 @@ local function new(class, props, parentToUse)
 end
 
 local gui = new("ScreenGui", {Name="PurrvotionMenu", ResetOnSpawn=false, DisplayOrder=5, ZIndexBehavior=Enum.ZIndexBehavior.Sibling}, parent)
-local panel = new("Frame", {Size=UDim2.fromOffset(600,440), Position=UDim2.new(.5,-300,.5,-220), BackgroundColor3=Color3.fromRGB(12,12,12), BackgroundTransparency=.1, BorderSizePixel=0, Active=true}, gui)
+local panel = new("Frame", {Size=UDim2.fromOffset(780,570), Position=UDim2.new(.5,-390,.5,-285), BackgroundColor3=Color3.fromRGB(12,12,12), BackgroundTransparency=.1, BorderSizePixel=0, Active=true}, gui)
 new("UICorner", {CornerRadius=UDim.new(0,15)}, panel)
 local stroke = new("UIStroke", {Color=accent, Thickness=1}, panel)
 
 local bar = new("Frame", {Size=UDim2.new(1,0,0,46), BackgroundTransparency=1, Active=true}, panel)
-new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.2", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
+new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.3", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
 do
 local close = new("TextButton", {Size=UDim2.fromOffset(30,28), Position=UDim2.new(1,-40,0,9), Text="×", TextSize=22, TextColor3=Color3.new(1,1,1), BackgroundColor3=Color3.fromRGB(36,36,36)}, bar)
 new("UICorner", {CornerRadius=UDim.new(0,6)}, close)
@@ -133,12 +133,15 @@ new("UIStroke",{Color=Color3.fromRGB(145,145,145),Thickness=1},menuToggle)
 menuToggle.MouseButton1Click:Connect(function() gui.Enabled=not gui.Enabled end)
 end
 
-local sidebar = new("Frame", {Position=UDim2.fromOffset(12,54), Size=UDim2.new(0,150,1,-66), BackgroundColor3=Color3.fromRGB(22,22,22), BorderSizePixel=0}, panel)
+local sidebar = new("ScrollingFrame", {Position=UDim2.fromOffset(12,54), Size=UDim2.new(0,174,1,-66), BackgroundColor3=Color3.fromRGB(22,22,22), BorderSizePixel=0, ScrollBarThickness=3, CanvasSize=UDim2.fromOffset(0,0), ClipsDescendants=true}, panel)
 new("UICorner", {CornerRadius=UDim.new(0,7)}, sidebar)
-new("UIListLayout", {Padding=UDim.new(0,6), SortOrder=Enum.SortOrder.LayoutOrder}, sidebar)
+local sidebarLayout=new("UIListLayout", {Padding=UDim.new(0,6), SortOrder=Enum.SortOrder.LayoutOrder}, sidebar)
+sidebarLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    sidebar.CanvasSize=UDim2.fromOffset(0,sidebarLayout.AbsoluteContentSize.Y+12)
+end)
 local menuSearch=new("TextBox", {Size=UDim2.new(1,-12,0,35),LayoutOrder=-10,BackgroundColor3=Color3.fromRGB(35,35,35),BorderSizePixel=0,Text="",PlaceholderText="⌕ Search tabs",TextColor3=Color3.new(1,1,1),PlaceholderColor3=Color3.fromRGB(160,160,160),TextSize=13,Font=Enum.Font.Gotham,ClearTextOnFocus=false},sidebar)
 new("UICorner",{CornerRadius=UDim.new(0,7)},menuSearch)
-local content = new("ScrollingFrame", {Position=UDim2.fromOffset(174,54), Size=UDim2.new(1,-186,1,-66), BackgroundColor3=Color3.fromRGB(20,20,20), BorderSizePixel=0, ScrollBarThickness=3, CanvasSize=UDim2.fromOffset(0,0)}, panel)
+local content = new("ScrollingFrame", {Position=UDim2.fromOffset(198,54), Size=UDim2.new(1,-210,1,-66), BackgroundColor3=Color3.fromRGB(20,20,20), BorderSizePixel=0, ScrollBarThickness=5, CanvasSize=UDim2.fromOffset(0,0)}, panel)
 new("UICorner", {CornerRadius=UDim.new(0,7)}, content)
 local layout = new("UIListLayout", {Padding=UDim.new(0,9), SortOrder=Enum.SortOrder.LayoutOrder}, content)
 layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() content.CanvasSize=UDim2.fromOffset(0,layout.AbsoluteContentSize.Y+18) end)
@@ -563,8 +566,9 @@ local function applyMenuBackground()
 end
 applyMenuBackground()
 local function applyCompactMenu()
-    local width=(opt.compactMenu and 500 or 600)*opt.menuScale
-    local height=(opt.compactMenu and 345 or 440)*opt.menuScale
+    local viewport=workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280,720)
+    local width=math.min((opt.compactMenu and 640 or 780)*opt.menuScale,math.max(350,viewport.X-24))
+    local height=math.min((opt.compactMenu and 475 or 570)*opt.menuScale,math.max(300,viewport.Y-90))
     panel.Size=UDim2.fromOffset(width,height)
     panel.Position=UDim2.new(.5,-width/2,.5,-height/2)
     panel.BackgroundTransparency=opt.menuTransparency
@@ -2679,7 +2683,7 @@ page("Cosmetics",function()
         setGhost(not playerTools.ghost)
         ghostButton.Text="Ghost appearance: "..(playerTools.ghost and "ON" or "OFF")
     end)
-    label("Ghost hides your body, accessories and equipped tools from YOUR view only.",48)
+    label("Local ghost effect only: other players still see your real avatar. This is not multiplayer invisibility.",58)
     label("Roblox LIMITED horns • catalog designs, not generic shapes",45)
     local hornStatus=label("Choose a limited below to preview it.",43)
     for _,style in ipairs({
@@ -2694,7 +2698,7 @@ page("Cosmetics",function()
     end
     button("Remove horns",clearHorns)
     button("Restore my avatar visuals",function()setGhost(false);clearHorns();restoreCamera() end)
-    label("These are local accessory previews and may be blocked by Roblox. Other players won't see them unless the game's server equips them.",75)
+    label("Limited horn loading is blocked in some games. If nothing appears, the game hasn't allowed the preview. It cannot grant or display unowned limiteds to everyone.",82)
 end)
 page("Session + Safety",function()
     local minutes=math.floor((os.clock()-playerTools.sessionStart)/60)
@@ -2720,7 +2724,7 @@ page("Session + Safety",function()
 end)
 
 tabs[1].TextColor3=accent
-label("Wisteria Hub v3.2",36)
+label("Wisteria Hub v3.3",36)
 label("Choose Main again to open Target Aim settings.",44)
 label(opt.menuKeyName.." or the floating Menu button: hide/show.",36)
 
@@ -2812,4 +2816,4 @@ local function shutdown()
     if toggleGui.Parent then toggleGui:Destroy() end
 end
 environment.PurrvotionCleanup=shutdown
-print("[Wisteria Hub] v3.2 ready")
+print("[Wisteria Hub] v3.3 ready")
