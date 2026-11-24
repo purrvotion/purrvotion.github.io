@@ -1,6 +1,6 @@
--- Wisteria Hub v3.4: hold-V mouse aiming preset with torso tracking.
+-- Wisteria Hub v3.5: align cursor tracking with viewport coordinates.
 -- No remote downloads or inventory actions; executor mouse support is optional.
-warn("[Wisteria Hub] v3.4 starting")
+warn("[Wisteria Hub] v3.5 starting")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -114,7 +114,7 @@ new("UICorner", {CornerRadius=UDim.new(0,15)}, panel)
 local stroke = new("UIStroke", {Color=accent, Thickness=1}, panel)
 
 local bar = new("Frame", {Size=UDim2.new(1,0,0,46), BackgroundTransparency=1, Active=true}, panel)
-new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.4", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
+new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.5", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
 do
 local close = new("TextButton", {Size=UDim2.fromOffset(30,28), Position=UDim2.new(1,-40,0,9), Text="×", TextSize=22, TextColor3=Color3.new(1,1,1), BackgroundColor3=Color3.fromRGB(36,36,36)}, bar)
 new("UICorner", {CornerRadius=UDim.new(0,6)}, close)
@@ -278,8 +278,7 @@ opt.assistAccumulator=Vector2.zero
 opt.mouseMoveAvailable=type(mousemoverel)=="function"
 local function aimCursor(camera)
     if UserInputService.MouseBehavior==Enum.MouseBehavior.LockCenter then
-        local inset=GuiService:GetGuiInset()
-        return camera.ViewportSize/2+inset
+        return camera.ViewportSize/2
     end
     return UserInputService:GetMouseLocation()
 end
@@ -318,7 +317,7 @@ local function pickCrosshairTarget(camera)
             local humanoid=other.Character:FindFirstChildOfClass("Humanoid")
             local part=other.Character:FindFirstChild(opt.aimPart)
             if humanoid and humanoid.Health>0 and part and (not own or (part.Position-own.Position).Magnitude<=opt.targetMaxDistance) then
-                local screenPoint,onScreen=camera:WorldToScreenPoint(part.Position)
+                local screenPoint,onScreen=camera:WorldToViewportPoint(part.Position)
                 if onScreen and screenPoint.Z>0 then
                     local distance=(Vector2.new(screenPoint.X,screenPoint.Y)-center).Magnitude
                     if distance<bestDistance then best,bestDistance=other,distance end
@@ -337,7 +336,7 @@ local function switchCrosshairTarget(camera,current)
             local hum=other.Character:FindFirstChildOfClass("Humanoid")
             local part=other.Character:FindFirstChild(opt.aimPart)
             if hum and hum.Health>0 and part and (not own or (part.Position-own.Position).Magnitude<=opt.targetMaxDistance) then
-                local point,visible=camera:WorldToScreenPoint(part.Position)
+                local point,visible=camera:WorldToViewportPoint(part.Position)
                 if visible and point.Z>0 then
                     local distance=(Vector2.new(point.X,point.Y)-center).Magnitude
                     if distance<=opt.targetFov then table.insert(choices,{player=other,distance=distance}) end
@@ -625,7 +624,7 @@ track(RunService.RenderStepped:Connect(function(dt)
                 opt.targetLostElapsed=0
             elseif opt.autoSwitchLost then
                 local trackedPart=opt.lockedTarget.Character:FindFirstChild(opt.aimPart)
-                local projected,visible=camera:WorldToScreenPoint(trackedPart.Position)
+                local projected,visible=camera:WorldToViewportPoint(trackedPart.Position)
                 if visible and projected.Z>0 then
                     opt.targetLostElapsed=0
                 else
@@ -652,7 +651,7 @@ track(RunService.RenderStepped:Connect(function(dt)
         trackingReticle.Visible=false
         local part=autoTarget and autoTarget.Character and autoTarget.Character:FindFirstChild(opt.aimPart)
         if part then
-            local screenPoint,onScreen=camera:WorldToScreenPoint(part.Position)
+            local screenPoint,onScreen=camera:WorldToViewportPoint(part.Position)
             if onScreen and screenPoint.Z>0 then
                 local inset=GuiService:GetGuiInset()
                 trackingReticle.Position=UDim2.fromOffset(screenPoint.X-inset.X,screenPoint.Y-inset.Y)
@@ -2735,7 +2734,7 @@ page("Session + Safety",function()
 end)
 
 tabs[1].TextColor3=accent
-label("Wisteria Hub v3.4",36)
+label("Wisteria Hub v3.5",36)
 label("Choose Main again to open Target Aim settings.",44)
 label(opt.menuKeyName.." or the floating Menu button: hide/show.",36)
 
@@ -2827,4 +2826,4 @@ local function shutdown()
     if toggleGui.Parent then toggleGui:Destroy() end
 end
 environment.PurrvotionCleanup=shutdown
-print("[Wisteria Hub] v3.4 ready")
+print("[Wisteria Hub] v3.5 ready")
