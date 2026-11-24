@@ -1,6 +1,6 @@
--- Wisteria Hub v3.3: larger responsive menu and scrollable navigation.
+-- Wisteria Hub v3.4: hold-V mouse aiming preset with torso tracking.
 -- No remote downloads or inventory actions; executor mouse support is optional.
-warn("[Wisteria Hub] v3.3 starting")
+warn("[Wisteria Hub] v3.4 starting")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
@@ -114,7 +114,7 @@ new("UICorner", {CornerRadius=UDim.new(0,15)}, panel)
 local stroke = new("UIStroke", {Color=accent, Thickness=1}, panel)
 
 local bar = new("Frame", {Size=UDim2.new(1,0,0,46), BackgroundTransparency=1, Active=true}, panel)
-new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.3", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
+new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.4", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
 do
 local close = new("TextButton", {Size=UDim2.fromOffset(30,28), Position=UDim2.new(1,-40,0,9), Text="×", TextSize=22, TextColor3=Color3.new(1,1,1), BackgroundColor3=Color3.fromRGB(36,36,36)}, bar)
 new("UICorner", {CornerRadius=UDim.new(0,6)}, close)
@@ -264,9 +264,9 @@ opt.lockedTarget=nil
 opt.targetFov=160
 opt.targetMaxDistance=700
 opt.showTargetFov=false
-opt.aimPart="Head"
-opt.smoothAssistEnabled=false
-opt.aimMode="Gentle"
+opt.aimPart="HumanoidRootPart"
+opt.smoothAssistEnabled=true
+opt.aimMode="Mouse"
 opt.assistStrength=0.12
 opt.assistMaxStep=6
 opt.aimDeadzone=4
@@ -545,6 +545,16 @@ local function loadPreferences()
     end
 end
 loadPreferences()
+-- Explicitly selected Razer side-button preset. Do not use Left Alt or camera lock.
+opt.holdKey="V"
+opt.holdMode=true
+opt.autoTargetEnabled=true
+opt.smoothAssistEnabled=true
+opt.aimMode="Mouse"
+opt.aimPart="HumanoidRootPart"
+opt.autoSwitchLost=false
+opt.holdActive=false
+opt.lockedTarget=nil
 local function applyMenuBackground()
     local styles={
         Midnight={Color3.fromRGB(12,12,12),Color3.fromRGB(22,22,22),Color3.fromRGB(20,20,20),.10},
@@ -1708,7 +1718,7 @@ end))
 end
 
 page("Main", function()
-    label("Automatic target selection near your cursor", 40)
+    label("Razer side button (V): hold to track the closest torso near your cursor. Release to stop.", 60)
     local aimButton
     aimButton=button(opt.autoTargetEnabled and "Auto target: ON" or "Auto target: OFF",function()
         opt.autoTargetEnabled=not opt.autoTargetEnabled
@@ -1716,9 +1726,10 @@ page("Main", function()
         savePreferences()
     end)
     local modeButton
-    modeButton=button("Mode: Hold to track",function()
-        opt.holdMode=not opt.holdMode
-        modeButton.Text=opt.holdMode and "Mode: Hold to track" or "Mode: Always on"
+    modeButton=button("Mode: Hold V (Razer side button)",function()
+        opt.holdMode=true;opt.holdKey="V"
+        opt.holdActive=false;opt.lockedTarget=nil
+        modeButton.Text="Mode: Hold V (Razer side button)"
         savePreferences()
     end)
     local keyButton
@@ -1736,7 +1747,7 @@ page("Main", function()
         keyButton.Text="Hold key: "..(opt.holdKey=="RightMouse" and "Right mouse" or opt.holdKey)
         savePreferences()
     end)
-    label("Hold V near your intended player. Release to retarget; press B to switch.",58)
+    label("Hold V near your intended player. Release to retarget; press B to switch. Does not use Left Alt, Shift Lock or first-person.",69)
     local autoSwitchButton
     autoSwitchButton=button("Switch when target leaves screen: "..(opt.autoSwitchLost and "ON" or "OFF"),function()
         opt.autoSwitchLost=not opt.autoSwitchLost
@@ -1774,7 +1785,7 @@ page("Main", function()
         assistModeButton.Text="Follow style: "..opt.aimMode
         savePreferences()
     end)
-    label("Gentle = smooth third-person view follow. Mouse = old experimental movement.",58)
+    label("Mouse = limited cursor movement (executor support required). Gentle = camera movement; avoid if you want full camera control.",68)
     label("Aim follow strength (0.01–0.5)",32)
     valueInput(opt.assistStrength,function(text,field)
         opt.assistStrength=math.clamp(tonumber(text) or .12,.01,.5)
@@ -2724,7 +2735,7 @@ page("Session + Safety",function()
 end)
 
 tabs[1].TextColor3=accent
-label("Wisteria Hub v3.3",36)
+label("Wisteria Hub v3.4",36)
 label("Choose Main again to open Target Aim settings.",44)
 label(opt.menuKeyName.." or the floating Menu button: hide/show.",36)
 
@@ -2816,4 +2827,4 @@ local function shutdown()
     if toggleGui.Parent then toggleGui:Destroy() end
 end
 environment.PurrvotionCleanup=shutdown
-print("[Wisteria Hub] v3.3 ready")
+print("[Wisteria Hub] v3.4 ready")
