@@ -1,9 +1,10 @@
--- Wisteria Hub v3.5: align cursor tracking with viewport coordinates.
+-- Wisteria Hub v3.6: streamlined features and stationary spectating.
 -- No remote downloads or inventory actions; executor mouse support is optional.
-warn("[Wisteria Hub] v3.5 starting")
+warn("[Wisteria Hub] v3.6 starting")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local ContextActionService = game:GetService("ContextActionService")
 local GuiService = game:GetService("GuiService")
 local Lighting = game:GetService("Lighting")
 local HttpService = game:GetService("HttpService")
@@ -114,7 +115,7 @@ new("UICorner", {CornerRadius=UDim.new(0,15)}, panel)
 local stroke = new("UIStroke", {Color=accent, Thickness=1}, panel)
 
 local bar = new("Frame", {Size=UDim2.new(1,0,0,46), BackgroundTransparency=1, Active=true}, panel)
-new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.5", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
+new("TextLabel", {Size=UDim2.new(1,-100,1,0), Position=UDim2.fromOffset(16,0), BackgroundTransparency=1, Text="✦  Wisteria Hub  ·  v3.6", TextColor3=Color3.new(1,1,1), TextSize=18, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left}, bar)
 do
 local close = new("TextButton", {Size=UDim2.fromOffset(30,28), Position=UDim2.new(1,-40,0,9), Text="×", TextSize=22, TextColor3=Color3.new(1,1,1), BackgroundColor3=Color3.fromRGB(36,36,36)}, bar)
 new("UICorner", {CornerRadius=UDim.new(0,6)}, close)
@@ -254,7 +255,7 @@ end
 -- Keep optional feature state together to stay under Luau's active-local limit.
 local opt={}
 opt.selectedTarget=nil
-opt.autoTargetEnabled=true
+opt.autoTargetEnabled=false
 local autoTarget
 opt.holdMode=true
 opt.holdKey="V"
@@ -265,7 +266,7 @@ opt.targetFov=160
 opt.targetMaxDistance=700
 opt.showTargetFov=false
 opt.aimPart="HumanoidRootPart"
-opt.smoothAssistEnabled=true
+opt.smoothAssistEnabled=false
 opt.aimMode="Mouse"
 opt.assistStrength=0.12
 opt.assistMaxStep=6
@@ -283,81 +284,6 @@ local function aimCursor(camera)
     return UserInputService:GetMouseLocation()
 end
 local ownRoot
-local targetIndicator=new("TextLabel",{Name="SelectedTarget",Position=UDim2.new(.5,-125,0,65),Size=UDim2.fromOffset(250,30),BackgroundColor3=Color3.fromRGB(12,12,12),BackgroundTransparency=.2,Text="Target: none",TextColor3=accent,TextSize=14,Font=Enum.Font.GothamBold,Visible=false},gui)
-new("UICorner",{CornerRadius=UDim.new(0,8)},targetIndicator)
-local fovRing=new("Frame",{Name="TargetFOV",AnchorPoint=Vector2.new(.5,.5),Size=UDim2.fromOffset(opt.targetFov*2,opt.targetFov*2),BackgroundTransparency=1,Visible=false},gui)
-new("UICorner",{CornerRadius=UDim.new(1,0)},fovRing)
-new("UIStroke",{Color=accent,Thickness=1,Transparency=.35},fovRing)
-local trackingReticle=new("Frame",{Name="TrackingReticle",AnchorPoint=Vector2.new(.5,.5),Size=UDim2.fromOffset(24,24),BackgroundTransparency=1,Visible=false},gui)
-new("UICorner",{CornerRadius=UDim.new(1,0)},trackingReticle)
-new("UIStroke",{Color=accent,Thickness=2},trackingReticle)
-local function matchesHoldInput(input)
-    if opt.holdKey=="RightMouse" then return input.UserInputType==Enum.UserInputType.MouseButton2 end
-    return input.KeyCode.Name==opt.holdKey
-end
-track(UserInputService.InputBegan:Connect(function(input,processed)
-    if not processed and matchesHoldInput(input) then opt.holdActive=true end
-end))
-track(UserInputService.InputEnded:Connect(function(input)
-    if matchesHoldInput(input) then opt.holdActive=false; opt.lockedTarget=nil;opt.targetLostElapsed=0 end
-end))
-track(UserInputService.InputBegan:Connect(function(input,processed)
-    if not processed and input.KeyCode.Name==opt.targetSwitchKey and opt.holdActive then
-        opt.targetSwitchRequested=true
-    end
-end))
-local function pickCrosshairTarget(camera)
-    -- In third person, select relative to the visible cursor, not Shift Lock.
-    local center=aimCursor(camera)
-    -- Narrow acquisition prevents grabbing unrelated players near the cursor.
-    local best,bestDistance=nil,math.min(opt.targetFov,100)
-    local own=ownRoot()
-    for _, other in ipairs(Players:GetPlayers()) do
-        if other~=player and other.Character then
-            local humanoid=other.Character:FindFirstChildOfClass("Humanoid")
-            local part=other.Character:FindFirstChild(opt.aimPart)
-            if humanoid and humanoid.Health>0 and part and (not own or (part.Position-own.Position).Magnitude<=opt.targetMaxDistance) then
-                local screenPoint,onScreen=camera:WorldToViewportPoint(part.Position)
-                if onScreen and screenPoint.Z>0 then
-                    local distance=(Vector2.new(screenPoint.X,screenPoint.Y)-center).Magnitude
-                    if distance<bestDistance then best,bestDistance=other,distance end
-                end
-            end
-        end
-    end
-    return best
-end
-local function switchCrosshairTarget(camera,current)
-    local center=aimCursor(camera)
-    local choices={}
-    local own=ownRoot()
-    for _,other in ipairs(Players:GetPlayers()) do
-        if other~=player and other.Character then
-            local hum=other.Character:FindFirstChildOfClass("Humanoid")
-            local part=other.Character:FindFirstChild(opt.aimPart)
-            if hum and hum.Health>0 and part and (not own or (part.Position-own.Position).Magnitude<=opt.targetMaxDistance) then
-                local point,visible=camera:WorldToViewportPoint(part.Position)
-                if visible and point.Z>0 then
-                    local distance=(Vector2.new(point.X,point.Y)-center).Magnitude
-                    if distance<=opt.targetFov then table.insert(choices,{player=other,distance=distance}) end
-                end
-            end
-        end
-    end
-    table.sort(choices,function(a,b) return a.distance<b.distance end)
-    for i,choice in ipairs(choices) do
-        if choice.player==current then return choices[i%#choices+1].player end
-    end
-    return choices[1] and choices[1].player or nil
-end
-local function targetStillValid(target)
-    if not target or not target.Character then return false end
-    local humanoid=target.Character:FindFirstChildOfClass("Humanoid")
-    local part=target.Character:FindFirstChild(opt.aimPart)
-    local root=ownRoot()
-    return humanoid~=nil and humanoid.Health>0 and part~=nil
-        and (not root or (part.Position-root.Position).Magnitude<=opt.targetMaxDistance)
-end
 opt.flyEnabled=false
 opt.flySpeed=45
 local MAX_FLIGHT_SPEED=300
@@ -417,13 +343,9 @@ local captureWeather
 opt.filterMode="None"
 opt.starsEnabled=false
 opt.moonEnabled=false
-local butterfliesEnabled=false -- legacy setting ignored: butterfly assets were unreliable
-local butterflyIntensity=2
 opt.firefliesEnabled=false
 opt.hideEffectsEnabled=false
 opt.smoothTransitionsEnabled=true
-local moonTintColor=Color3.new(1,1,1)
-local moonTintName="White"
 opt.adaptivePerfEnabled=false
 opt.quickToolbarEnabled=true
 local quickGui
@@ -439,9 +361,7 @@ local function savePreferences()
     for name,cf in pairs(shopBookmarks) do bookmarks[name]={cf:GetComponents()} end
     local payload={bookmarks=bookmarks,hitboxSize=hitbox.size,hitboxTransparency=hitbox.transparency,
         hitboxColor={math.floor(hitbox.color.R*255+.5),math.floor(hitbox.color.G*255+.5),math.floor(hitbox.color.B*255+.5)},
-        hitboxEnabled=hitbox.enabled,aim={enabled=opt.autoTargetEnabled,hold=opt.holdMode,key=opt.holdKey,mode=opt.aimMode,switchPolicy=opt.autoSwitchLost and "auto" or "manual",
-            fov=opt.targetFov,distance=opt.targetMaxDistance,part=opt.aimPart,smooth=opt.smoothAssistEnabled,
-            strength=opt.assistStrength,maxStep=opt.assistMaxStep,deadzone=opt.aimDeadzone,switchKey=opt.targetSwitchKey},
+        hitboxEnabled=hitbox.enabled,
         accent={math.floor(accent.R*255+.5),math.floor(accent.G*255+.5),math.floor(accent.B*255+.5)},
         favoriteShops=favoriteShops,profiles=settingsProfiles,savedSkies=savedSkies,
         weather=captureWeather and captureWeather() or opt.storedWeatherSettings,
@@ -480,22 +400,6 @@ local function loadPreferences()
         end
     end
     hitbox.enabled=data.hitboxEnabled==true
-    if type(data.aim)=="table" then
-        opt.autoTargetEnabled=data.aim.enabled~=false
-        opt.holdMode=data.aim.hold~=false
-        if type(data.aim.key)=="string" and (Enum.KeyCode[data.aim.key] or data.aim.key=="RightMouse") then opt.holdKey=data.aim.key end
-        if opt.holdKey=="C" then opt.holdKey="V" end -- C is reserved for the double-tap macro
-        if type(data.aim.fov)=="number" then opt.targetFov=math.clamp(data.aim.fov,25,450) end
-        if type(data.aim.distance)=="number" then opt.targetMaxDistance=math.clamp(data.aim.distance,50,2000) end
-        if data.aim.part=="Head" or data.aim.part=="HumanoidRootPart" then opt.aimPart=data.aim.part end
-        if data.aim.mode=="Mouse" or data.aim.mode=="Gentle" then opt.aimMode=data.aim.mode end
-        opt.autoSwitchLost=data.aim.switchPolicy=="auto"
-        opt.smoothAssistEnabled=data.aim.smooth==true
-        if type(data.aim.strength)=="number" then opt.assistStrength=math.clamp(data.aim.strength,.01,.5) end
-        if type(data.aim.maxStep)=="number" then opt.assistMaxStep=math.clamp(data.aim.maxStep,1,15) end
-        if type(data.aim.deadzone)=="number" then opt.aimDeadzone=math.clamp(data.aim.deadzone,0,35) end
-        if type(data.aim.switchKey)=="string" and Enum.KeyCode[data.aim.switchKey] then opt.targetSwitchKey=data.aim.switchKey end
-    end
     if type(data.accent)=="table" and #data.accent==3 then
         local r,g,b=table.unpack(data.accent)
         if type(r)=="number" and type(g)=="number" and type(b)=="number" then
@@ -547,8 +451,8 @@ loadPreferences()
 -- Explicitly selected Razer side-button preset. Do not use Left Alt or camera lock.
 opt.holdKey="V"
 opt.holdMode=true
-opt.autoTargetEnabled=true
-opt.smoothAssistEnabled=true
+opt.autoTargetEnabled=false
+opt.smoothAssistEnabled=false
 opt.aimMode="Mouse"
 opt.aimPart="HumanoidRootPart"
 opt.autoSwitchLost=false
@@ -600,83 +504,9 @@ local function restoreCollisions()
     end
 end
 local noclipElapsed=0
-local targetUpdateElapsed=0
 track(RunService.RenderStepped:Connect(function(dt)
     local root=ownRoot()
     local camera=workspace.CurrentCamera
-    targetUpdateElapsed+=dt
-    if camera and (not isPerformanceActive() or targetUpdateElapsed>=.08) then
-        targetUpdateElapsed=0
-        if not opt.holdActive then opt.lockedTarget=nil;opt.targetLostElapsed=0 end
-        if opt.holdActive and not opt.wasHolding and opt.autoTargetEnabled then
-            opt.lockedTarget=pickCrosshairTarget(camera)
-            opt.targetLostElapsed=0
-        end
-        if opt.targetSwitchRequested then
-            opt.targetSwitchRequested=false
-            opt.lockedTarget=switchCrosshairTarget(camera,opt.lockedTarget)
-            opt.targetLostElapsed=0
-        end
-        if opt.holdActive and opt.autoTargetEnabled then
-            if not targetStillValid(opt.lockedTarget) then
-                -- Require releasing V or pressing B before choosing someone else.
-                opt.lockedTarget=nil
-                opt.targetLostElapsed=0
-            elseif opt.autoSwitchLost then
-                local trackedPart=opt.lockedTarget.Character:FindFirstChild(opt.aimPart)
-                local projected,visible=camera:WorldToViewportPoint(trackedPart.Position)
-                if visible and projected.Z>0 then
-                    opt.targetLostElapsed=0
-                else
-                    opt.targetLostElapsed+=dt
-                    if opt.targetLostElapsed>=.25 then
-                        opt.lockedTarget=pickCrosshairTarget(camera)
-                        opt.targetLostElapsed=0
-                    end
-                end
-            end
-        end
-        opt.wasHolding=opt.holdActive
-        local active=opt.autoTargetEnabled and (not opt.holdMode or opt.holdActive)
-        if opt.holdActive then
-            autoTarget=active and targetStillValid(opt.lockedTarget) and opt.lockedTarget or nil
-        else
-            autoTarget=active and pickCrosshairTarget(camera) or nil
-        end
-        targetIndicator.Visible=opt.autoTargetEnabled
-        targetIndicator.Text="Target: "..(autoTarget and autoTarget.DisplayName or (opt.holdActive and "key held; no target" or (opt.holdMode and "hold key to track" or "none")))
-        fovRing.Visible=opt.autoTargetEnabled and opt.showTargetFov
-        fovRing.Position=UDim2.fromOffset(camera.ViewportSize.X/2,camera.ViewportSize.Y/2)
-        fovRing.Size=UDim2.fromOffset(opt.targetFov*2,opt.targetFov*2)
-        trackingReticle.Visible=false
-        local part=autoTarget and autoTarget.Character and autoTarget.Character:FindFirstChild(opt.aimPart)
-        if part then
-            local screenPoint,onScreen=camera:WorldToViewportPoint(part.Position)
-            if onScreen and screenPoint.Z>0 then
-                local inset=GuiService:GetGuiInset()
-                trackingReticle.Position=UDim2.fromOffset(screenPoint.X-inset.X,screenPoint.Y-inset.Y)
-                trackingReticle.Visible=true
-                -- Optional, capped relative mouse motion. This depends on the executor.
-                -- Never adjusts the camera directly or redirects shots.
-                if opt.smoothAssistEnabled and opt.aimMode=="Mouse" and opt.holdActive and opt.mouseMoveAvailable then
-                    local cursor=aimCursor(camera)
-                    local movement=(Vector2.new(screenPoint.X,screenPoint.Y)-cursor)*opt.assistStrength
-                    if movement.Magnitude<=opt.aimDeadzone then movement=Vector2.zero end
-                    if movement.Magnitude>opt.assistMaxStep then movement=movement.Unit*opt.assistMaxStep end
-                    opt.assistAccumulator+=movement
-                    local dx=math.round(opt.assistAccumulator.X)
-                    local dy=math.round(opt.assistAccumulator.Y)
-                    opt.assistAccumulator-=Vector2.new(dx,dy)
-                    if dx~=0 or dy~=0 then
-                        local ok=pcall(mousemoverel,dx,dy)
-                        if not ok then opt.mouseMoveAvailable=false end
-                    end
-                else
-                    opt.assistAccumulator=Vector2.zero
-                end
-            end
-        end
-    end
     if opt.flyEnabled and root and camera then
         if not flyVelocity or flyVelocity.Parent~=root then
             stopFlight()
@@ -710,23 +540,6 @@ track(RunService.RenderStepped:Connect(function(dt)
         end
     end
 end))
--- Run after Roblox's camera controller so normal third-person movement stays available.
-local aimRenderBinding="WisteriaGentleAim_"..tostring(player.UserId)
-RunService:BindToRenderStep(aimRenderBinding,Enum.RenderPriority.Camera.Value+1,function(dt)
-    if not opt.smoothAssistEnabled or opt.aimMode~="Gentle" or not opt.holdActive then return end
-    if not opt.autoTargetEnabled or not targetStillValid(autoTarget) then return end
-    if UserInputService:GetFocusedTextBox() then return end
-    local camera=workspace.CurrentCamera
-    local character=autoTarget.Character
-    local part=character and (character:FindFirstChild(opt.aimPart) or character:FindFirstChild("Head"))
-    if not camera or not part then return end
-    local direction=part.Position-camera.CFrame.Position
-    if direction.Magnitude<1 then return end
-    local desired=CFrame.lookAt(camera.CFrame.Position,part.Position)
-    local response=math.clamp(opt.assistStrength*26,0.3,8)
-    local alpha=math.min(.16,1-math.exp(-math.clamp(dt,0,.06)*response))
-    camera.CFrame=camera.CFrame:Lerp(desired,alpha)
-end)
 local function valueInput(current, callback)
     local field=new("TextBox", {Size=UDim2.new(1,-20,0,34),BackgroundColor3=Color3.fromRGB(43,43,43),Text=tostring(current),TextColor3=Color3.new(1,1,1),Font=Enum.Font.Gotham,TextSize=14,ClearTextOnFocus=false},content)
     new("UICorner",{CornerRadius=UDim.new(0,6)},field)
@@ -771,17 +584,6 @@ end
 -- Local rain streak overlay and reversible gray weather grading.
 local rainGui=new("ScreenGui",{Name="PurrvotionRain",IgnoreGuiInset=true,ResetOnSpawn=false,DisplayOrder=0,Enabled=false},parent)
 local rainCanvas=new("Frame",{Size=UDim2.fromScale(1,1),BackgroundTransparency=1,Active=false},rainGui)
-local moonGui=new("ScreenGui",{Name="PurrvotionMoon",IgnoreGuiInset=true,ResetOnSpawn=false,DisplayOrder=1,Enabled=false},parent)
-local moonDisc=new("Frame",{Name="TintedMoon",AnchorPoint=Vector2.new(.5,.5),Size=UDim2.fromOffset(90,90),
-    BackgroundColor3=Color3.new(1,1,1),BackgroundTransparency=.68,BorderSizePixel=0,Visible=false},moonGui)
-new("UICorner",{CornerRadius=UDim.new(1,0)},moonDisc)
-local moonImage=new("ImageLabel",{Name="MoonTexture",Size=UDim2.fromScale(1,1),BackgroundTransparency=1,
-    Image="rbxasset://sky/moon.jpg",ImageColor3=Color3.new(1,1,1),ScaleType=Enum.ScaleType.Fit},moonDisc)
-new("UICorner",{CornerRadius=UDim.new(1,0)},moonImage)
-local butterflyFX=(function()
-local butterflyGui=new("ScreenGui",{Name="PurrvotionButterflies",Enabled=false,ResetOnSpawn=false},parent)
-return {gui=butterflyGui,set=function() butterfliesEnabled=false end}
-end)()
 -- World-space weather is local to this client. It follows the player without covering the UI.
 local worldFX=(function()
     local folder=Instance.new("Folder")
@@ -1063,8 +865,6 @@ local weatherLooks={
     ["Storm"]={fog=650,color=Color3.fromRGB(116,128,151),density=.31,haze=1.4,brightness=0,saturation=-.38,tint=Color3.fromRGB(196,208,232),time=15},
     ["Misty"]={fog=520,color=Color3.fromRGB(183,190,205),density=.40,haze=2,brightness=.07,saturation=-.3,tint=Color3.fromRGB(229,234,242),time=10},
     ["Night"]={fog=850,color=Color3.fromRGB(87,106,153),density=.24,haze=1.1,brightness=.06,saturation=-.25,tint=Color3.fromRGB(184,197,245),time=21},
-    ["Butterfly Night"]={fog=900,color=Color3.fromRGB(125,118,191),density=.22,haze=1.1,
-        brightness=.08,saturation=-.12,tint=Color3.fromRGB(211,202,255),time=20},
     ["Sunset"]={fog=420,color=Color3.fromRGB(172,114,126),density=.24,haze=1.6,brightness=-.04,saturation=-.18,tint=Color3.fromRGB(255,207,197),time=18.3},
 }
 local skyHoldAfter=0
@@ -1250,25 +1050,21 @@ local originalSky
 local skyMadeByPurrvotion=false
 local skyProperties
 local function setCelestials()
-    local enable=opt.starsEnabled or opt.moonEnabled
-    -- Keep the game's native moon. A 2-D tinted overlay looks like a floating planet.
-    moonGui.Enabled=false
+    local enable=opt.starsEnabled
     if enable then
         if not originalSky or not originalSky.Parent then
             originalSky=Lighting:FindFirstChildOfClass("Sky")
             skyMadeByPurrvotion=originalSky==nil
             if not originalSky then originalSky=Instance.new("Sky"); originalSky.Parent=Lighting end
-            skyProperties={Stars=originalSky.StarCount,Shown=originalSky.CelestialBodiesShown,Moon=originalSky.MoonAngularSize}
+            skyProperties={Stars=originalSky.StarCount,Shown=originalSky.CelestialBodiesShown}
         end
         originalSky.CelestialBodiesShown=true
         originalSky.StarCount=opt.starsEnabled and (isPerformanceActive() and 350 or 1800) or 0
-        originalSky.MoonAngularSize=opt.moonEnabled and (skyProperties and skyProperties.Moon or 11) or 0
     elseif originalSky then
         if skyMadeByPurrvotion then originalSky:Destroy()
         elseif originalSky.Parent and skyProperties then
             originalSky.StarCount=skyProperties.Stars
             originalSky.CelestialBodiesShown=skyProperties.Shown
-            originalSky.MoonAngularSize=skyProperties.Moon
         end
         originalSky=nil
         skyProperties=nil
@@ -1385,7 +1181,7 @@ captureWeather=function()
         particleStyle=opt.particleStyle,petals=opt.petalsEnabled,snow=opt.snowfallEnabled,thunder=opt.thunderEnabled,
         shootingStars=opt.shootingStarsEnabled,nightBrightness=opt.customNightBrightness,
         dayCycle=opt.dayNightCycle,dayCycleMinutes=opt.dayNightCycleMinutes,
-        stars=opt.starsEnabled,moon=opt.moonEnabled,moonName=moonTintName,moonColor=colorArray(moonTintColor),
+        stars=opt.starsEnabled,
         fireflies=opt.firefliesEnabled,filter=opt.filterMode}
 end
 local function applyWeather(data)
@@ -1418,11 +1214,8 @@ local function applyWeather(data)
     local rcolor=arrayColor(data.rainColor)
     if rcolor then applyRainColor(rcolor) end
     setRain(data.rain==true)
-    opt.starsEnabled=data.stars==true;opt.moonEnabled=data.moon==true
-    moonTintName=tostring(data.moonName or "White")
-    moonTintColor=arrayColor(data.moonColor) or Color3.new(1,1,1)
+    opt.starsEnabled=data.stars==true;opt.moonEnabled=false
     setCelestials()
-    butterflyFX.set(false)
     opt.firefliesEnabled=data.fireflies==true
     setColorFilter(tostring(data.filter or "None"))
 end
@@ -1444,10 +1237,7 @@ end
 local function captureProfile()
     return {weather=captureWeather(),movement={fly=opt.flySpeed,walk=opt.walkSpeed},
         hitbox={size=hitbox.size,visible=hitbox.transparency,enabled=hitbox.enabled,color=colorArray(hitbox.color)},
-        aim={enabled=opt.autoTargetEnabled,hold=opt.holdMode,part=opt.aimPart,key=opt.holdKey,mode=opt.aimMode,switchPolicy=opt.autoSwitchLost and "auto" or "manual",
-            fov=opt.targetFov,distance=opt.targetMaxDistance,smooth=opt.smoothAssistEnabled,
-            strength=opt.assistStrength,maxStep=opt.assistMaxStep,deadzone=opt.aimDeadzone},
-        accent=colorArray(accent),menu=opt.menuKeyName,flyKey=opt.flyKeyName,targetKey=opt.holdKey,
+        accent=colorArray(accent),menu=opt.menuKeyName,flyKey=opt.flyKeyName,
         compact=opt.compactMenu,performance=performanceMode,hideEffects=opt.hideEffectsEnabled,
         adaptive=opt.adaptivePerfEnabled,quickToolbar=opt.quickToolbarEnabled,smoothWeather=opt.smoothTransitionsEnabled,
         quickPosition={table.unpack(quickPosition)},
@@ -1469,26 +1259,10 @@ local function applyProfile(data)
         if hitboxTint then hitbox.color=hitboxTint end
         refreshHitboxes()
     end
-    if type(data.aim)=="table" then
-        opt.autoTargetEnabled=data.aim.enabled~=false
-        opt.holdMode=data.aim.hold~=false
-        if data.aim.part=="Head" or data.aim.part=="HumanoidRootPart" then opt.aimPart=data.aim.part end
-        if data.aim.mode=="Mouse" or data.aim.mode=="Gentle" then opt.aimMode=data.aim.mode end
-        opt.autoSwitchLost=data.aim.switchPolicy=="auto"
-        if type(data.aim.key)=="string" and (Enum.KeyCode[data.aim.key] or data.aim.key=="RightMouse") then opt.holdKey=data.aim.key end
-        if type(data.aim.fov)=="number" then opt.targetFov=math.clamp(data.aim.fov,25,450) end
-        if type(data.aim.distance)=="number" then opt.targetMaxDistance=math.clamp(data.aim.distance,50,2000) end
-        opt.smoothAssistEnabled=data.aim.smooth==true
-        if type(data.aim.strength)=="number" then opt.assistStrength=math.clamp(data.aim.strength,.01,.5) end
-        if type(data.aim.maxStep)=="number" then opt.assistMaxStep=math.clamp(data.aim.maxStep,1,15) end
-        if type(data.aim.deadzone)=="number" then opt.aimDeadzone=math.clamp(data.aim.deadzone,0,35) end
-    end
     local color=arrayColor(data.accent)
     if color then accent=color;updateAccent() end
     if type(data.menu)=="string" and Enum.KeyCode[data.menu] and data.menu~="RightShift" then opt.menuKeyName=data.menu end
     if type(data.flyKey)=="string" and (Enum.KeyCode[data.flyKey] or data.flyKey=="None") then opt.flyKeyName=data.flyKey end
-    if type(data.targetKey)=="string" and (Enum.KeyCode[data.targetKey] or data.targetKey=="RightMouse") then opt.holdKey=data.targetKey end
-    if opt.holdKey=="C" then opt.holdKey="V" end
     opt.compactMenu=data.compact==true
     applyCompactMenu()
     opt.adaptivePerfEnabled=data.adaptive==true
@@ -1516,10 +1290,8 @@ local function setBind(which,name)
     local allowed={P=true,B=true,G=true,H=true,J=true,K=true,L=true,N=true,O=true,V=true,Z=true,
         Insert=true,RightControl=true,None=true,RightMouse=true}
     if not allowed[name] then return false end
-    if which=="menu" and name~="None" and name~="RightMouse" and name~=opt.flyKeyName and name~=opt.holdKey then opt.menuKeyName=name
-    elseif which=="fly" and name~=opt.menuKeyName and name~=opt.holdKey and name~="RightMouse" then opt.flyKeyName=name
-    elseif which=="target" and name~="None" and name~=opt.menuKeyName and name~=opt.flyKeyName and name~=opt.targetSwitchKey then
-        opt.holdKey=name; opt.holdActive=false; opt.lockedTarget=nil
+    if which=="menu" and name~="None" and name~="RightMouse" and name~=opt.flyKeyName then opt.menuKeyName=name
+    elseif which=="fly" and name~=opt.menuKeyName and name~="RightMouse" then opt.flyKeyName=name
     else return false end
     savePreferences()
     return true
@@ -1541,29 +1313,11 @@ if type(opt.storedWeatherSettings)=="table" then
     applyWeather(opt.storedWeatherSettings)
 else
     setWeatherPreset("Night")
-    opt.moonEnabled=true;setCelestials()
+    opt.moonEnabled=false;setCelestials()
 end
 if performanceMode then setPerformanceMode(true)
 elseif opt.hideEffectsEnabled then refreshSuppressedEffects() end
-local moonElapsed=0
-local function updateMoonOverlay(dt)
-    if not moonGui.Enabled then moonDisc.Visible=false; return end
-    moonElapsed+=dt
-    if moonElapsed<(isPerformanceActive() and .12 or .055) then return end
-    moonElapsed=0
-    local camera=workspace.CurrentCamera
-    if not camera then moonDisc.Visible=false; return end
-    local direction=Lighting:GetMoonDirection()
-    if direction.Y<=0 then moonDisc.Visible=false; return end
-    local projected,onScreen=camera:WorldToViewportPoint(camera.CFrame.Position+direction*1000)
-    if not onScreen or projected.Z<=0 then moonDisc.Visible=false; return end
-    local size=math.clamp(camera.ViewportSize.Y*math.tan(math.rad(6))/math.tan(math.rad(camera.FieldOfView*.5)),25,170)
-    moonDisc.Size=UDim2.fromOffset(size,size)
-    moonDisc.Position=UDim2.fromOffset(projected.X,projected.Y)
-    moonDisc.Visible=true
-end
 local weatherConnection=track(RunService.RenderStepped:Connect(function(dt)
-    updateMoonOverlay(dt)
     worldFX.update(dt,player.Character and player.Character:FindFirstChild("HumanoidRootPart"),isPerformanceActive())
 end))
 do -- Gentle, infrequent lightning: no strobe effect.
@@ -1583,7 +1337,6 @@ end
 gui.Destroying:Connect(function()
     setWeatherPreset("Normal")
     setRain(false)
-    butterflyFX.set(false)
     if cancelWeatherTransition then cancelWeatherTransition() end
     opt.starsEnabled=false; opt.moonEnabled=false; setCelestials()
     setColorFilter("None")
@@ -1591,8 +1344,6 @@ gui.Destroying:Connect(function()
     restoreAllHitboxes()
     weatherConnection:Disconnect()
     rainGui:Destroy()
-    moonGui:Destroy()
-    butterflyFX.gui:Destroy()
     worldFX.folder:Destroy()
 end)
 
@@ -1611,7 +1362,6 @@ local function emergencyReset()
     hitbox.enabled=false; restoreAllHitboxes()
     setWeatherPreset("Normal")
     setRain(false)
-    butterflyFX.set(false)
     opt.moonEnabled=false; opt.starsEnabled=false; setCelestials()
     setColorFilter("None")
     opt.adaptivePerfEnabled=false; setAdaptiveReduced(false)
@@ -1717,104 +1467,14 @@ end))
 end
 
 page("Main", function()
-    label("Razer side button (V): hold to track the closest torso near your cursor. Release to stop.", 60)
-    local aimButton
-    aimButton=button(opt.autoTargetEnabled and "Auto target: ON" or "Auto target: OFF",function()
-        opt.autoTargetEnabled=not opt.autoTargetEnabled
-        aimButton.Text=opt.autoTargetEnabled and "Auto target: ON" or "Auto target: OFF"
-        savePreferences()
-    end)
-    local modeButton
-    modeButton=button("Mode: Hold V (Razer side button)",function()
-        opt.holdMode=true;opt.holdKey="V"
-        opt.holdActive=false;opt.lockedTarget=nil
-        modeButton.Text="Mode: Hold V (Razer side button)"
-        savePreferences()
-    end)
-    local keyButton
-    keyButton=button("Hold key: "..opt.holdKey,function()
-        local candidates={"V","Z","RightMouse"}
-        local currentIndex=0
-        for i,choice in ipairs(candidates) do if choice==opt.holdKey then currentIndex=i; break end end
-        for _=1,#candidates do
-            currentIndex=currentIndex%#candidates+1
-            local candidate=candidates[currentIndex]
-            if candidate~=opt.menuKeyName and candidate~=opt.flyKeyName then opt.holdKey=candidate; break end
-        end
-        opt.holdActive=false
-        opt.lockedTarget=nil
-        keyButton.Text="Hold key: "..(opt.holdKey=="RightMouse" and "Right mouse" or opt.holdKey)
-        savePreferences()
-    end)
-    label("Hold V near your intended player. Release to retarget; press B to switch. Does not use Left Alt, Shift Lock or first-person.",69)
-    local autoSwitchButton
-    autoSwitchButton=button("Switch when target leaves screen: "..(opt.autoSwitchLost and "ON" or "OFF"),function()
-        opt.autoSwitchLost=not opt.autoSwitchLost
-        autoSwitchButton.Text="Switch when target leaves screen: "..(opt.autoSwitchLost and "ON" or "OFF")
-        savePreferences()
-    end)
-    numericSlider("Aim deadzone (pixels)",0,35,opt.aimDeadzone,1,function(value) opt.aimDeadzone=value end)
-    label("FOV radius in pixels (25–450)",32)
-    valueInput(opt.targetFov,function(text,field)
-        opt.targetFov=math.clamp(tonumber(text) or 160,25,450); field.Text=tostring(opt.targetFov)
-        savePreferences()
-    end)
-    label("Maximum player distance in studs (50–2000)",42)
-    valueInput(opt.targetMaxDistance,function(text,field)
-        opt.targetMaxDistance=math.clamp(tonumber(text) or 700,50,2000); field.Text=tostring(opt.targetMaxDistance)
-        savePreferences()
-    end)
-    label("FOV ring is hidden; the radius still controls target selection.",45)
-    local aimPartButton
-    aimPartButton=button("Aim part: "..opt.aimPart,function()
-        opt.aimPart=opt.aimPart=="Head" and "HumanoidRootPart" or "Head"
-        aimPartButton.Text="Aim part: "..opt.aimPart
-        savePreferences()
-    end)
-    local assistButton
-    assistButton=button("Aim follow: "..(opt.smoothAssistEnabled and "ON" or "OFF"),function()
-        opt.smoothAssistEnabled=not opt.smoothAssistEnabled
-        assistButton.Text=opt.smoothAssistEnabled and "Aim follow: ON" or "Aim follow: OFF"
-        savePreferences()
-    end)
-    local assistModeButton
-    assistModeButton=button("Follow style: "..opt.aimMode,function()
-        opt.aimMode=opt.aimMode=="Gentle" and "Mouse" or "Gentle"
-        opt.assistAccumulator=Vector2.zero
-        assistModeButton.Text="Follow style: "..opt.aimMode
-        savePreferences()
-    end)
-    label("Mouse = limited cursor movement (executor support required). Gentle = camera movement; avoid if you want full camera control.",68)
-    label("Aim follow strength (0.01–0.5)",32)
-    valueInput(opt.assistStrength,function(text,field)
-        opt.assistStrength=math.clamp(tonumber(text) or .12,.01,.5)
-        field.Text=tostring(opt.assistStrength)
-        savePreferences()
-    end)
-    label("Max mouse pixels per frame (1–15)",32)
-    valueInput(opt.assistMaxStep,function(text,field)
-        opt.assistMaxStep=math.clamp(tonumber(text) or 6,1,15)
-        field.Text=tostring(opt.assistMaxStep)
-        savePreferences()
-    end)
-    label("Hold "..opt.holdKey.." to track a target; your mouse side buttons are unchanged.",62)
-    label(opt.mouseMoveAvailable and "Hold the selected key for ONE target. Release to switch." or "Mouse movement API unavailable here: visual tracking only.",62)
-    label("Gentle follow moves your view only while V is held; it cannot guarantee shots will register.",58)
-    label("Silent aim: not implemented. Da Hood shot redirection needs separate verification.",55)
-    label("Manual teleport target (optional)",35)
-    valueInput(opt.selectedTarget and opt.selectedTarget.Name or "",function(text,field)
-        opt.selectedTarget=nil
-        for _, other in ipairs(Players:GetPlayers()) do
-            if other~=player and other.Name:lower():find(text:lower(),1,true) and #text>0 then opt.selectedTarget=other; break end
-        end
-        field.Text=opt.selectedTarget and opt.selectedTarget.Name or "Player not found"
-    end)
-    label("Press "..opt.menuKeyName.." or tap the small Menu button to show/hide Wisteria Hub.", 52)
+    label("Welcome to Wisteria Hub! Use the tabs for weather, movement, teleports and players.",60)
+    label("Broken aiming, invisibility, horns, butterflies and moon controls have been removed.",60)
+    label("Press "..opt.menuKeyName.." or tap the small Menu button to show/hide Wisteria Hub.",52)
 end)
 page("Visuals", function()
     label("Weather • choose a sky mood (rain is separate)",42)
     local weatherLabel=label("Current sky: "..opt.weatherPreset,32)
-    local starsButton,moonButton
+    local starsButton
     local transitionButton
     transitionButton=button("Smooth sky transitions: "..(opt.smoothTransitionsEnabled and "ON" or "OFF"),function()
         opt.smoothTransitionsEnabled=not opt.smoothTransitionsEnabled
@@ -1937,10 +1597,6 @@ page("Visuals", function()
         opt.starsEnabled=not opt.starsEnabled; setCelestials(); savePreferences()
         starsButton.Text="Stars: "..(opt.starsEnabled and "ON" or "OFF")
     end)
-    moonButton=button("Moon: "..(opt.moonEnabled and "ON" or "OFF"),function()
-        opt.moonEnabled=not opt.moonEnabled; setCelestials(); savePreferences()
-        moonButton.Text="Moon: "..(opt.moonEnabled and "ON" or "OFF")
-    end)
     label("Particles & weather mixing • effects can run together",44)
     local particleButton
     particleButton=button("Floating particles: "..(opt.particleEnabled and "ON" or "OFF"),function()
@@ -1983,7 +1639,7 @@ page("Visuals", function()
         savePreferences()
     end)
     label("3D effects drift around you; performance mode reduces particles.",50)
-    label("Original game moon preserved. Moon recoloring needs a separate uploaded sky texture; the old fake overlay is removed.",62)
+    label("The game's normal moon is unchanged; the old custom overlay is removed.",52)
     label("Color filters (choose one; None disables)",40)
     local filterStatus=label("Active filter: "..opt.filterMode,34)
     for _,filter in ipairs({"None","Monochrome","Pastel","Vintage","Cool","Cinematic"}) do
@@ -2329,43 +1985,30 @@ page("Settings", function()
     end)
     label("Drag the mini toolbar by its left handle. Use Reset if movement glitches.",54)
     label("Custom keybinds • C is reserved for double-tap macro. No Shift needed!",48)
-    local keyStatus=label("Menu: "..opt.menuKeyName.." • Fly: "..opt.flyKeyName.." • Aim: "..opt.holdKey,42)
+    local keyStatus=label("Menu: "..opt.menuKeyName.." • Fly: "..opt.flyKeyName,42)
     label("Menu key (P, B, G, H, J, K, L, N, O, V, Z, Insert)",48)
     valueInput(opt.menuKeyName,function(text,field)
         local name=text:gsub("%s","")
         if not setBind("menu",name) then field.Text="Invalid or conflicting key" else field.Text=name end
-        keyStatus.Text="Menu: "..opt.menuKeyName.." • Fly: "..opt.flyKeyName.." • Aim: "..opt.holdKey
+        keyStatus.Text="Menu: "..opt.menuKeyName.." • Fly: "..opt.flyKeyName
     end)
     label("Fly toggle key (same choices, or None)",34)
     valueInput(opt.flyKeyName,function(text,field)
         local name=text:gsub("%s","")
         if not setBind("fly",name) then field.Text="Invalid or conflicting key" else field.Text=name end
-        keyStatus.Text="Menu: "..opt.menuKeyName.." • Fly: "..opt.flyKeyName.." • Aim: "..opt.holdKey
-    end)
-    label("Target hold key (same choices or RightMouse)",44)
-    valueInput(opt.holdKey,function(text,field)
-        local name=text:gsub("%s","")
-        if not setBind("target",name) then field.Text="Invalid or conflicting key" else field.Text=name end
-        keyStatus.Text="Menu: "..opt.menuKeyName.." • Fly: "..opt.flyKeyName.." • Aim: "..opt.holdKey
-    end)
-    label("Target switch key (default B)",32)
-    valueInput(opt.targetSwitchKey,function(text,field)
-        local value=text:gsub("%s","")
-        if Enum.KeyCode[value] and value~="C" and value~=opt.holdKey and value~=opt.menuKeyName and value~=opt.flyKeyName then
-            opt.targetSwitchKey=value;savePreferences();field.Text=value
-        else field.Text="Key conflict" end
+        keyStatus.Text="Menu: "..opt.menuKeyName.." • Fly: "..opt.flyKeyName
     end)
     label("Quick settings wheel key (default G)",36)
     valueInput(opt.quickWheelKey,function(text,field)
         local value=text:gsub("%s","")
-        if Enum.KeyCode[value] and value~="C" and value~=opt.menuKeyName and value~=opt.holdKey then
+        if Enum.KeyCode[value] and value~="C" and value~=opt.menuKeyName then
             opt.quickWheelKey=value;savePreferences();field.Text=value
         else field.Text="Key conflict" end
     end)
     label("Minimal HUD key (default H)",34)
     valueInput(opt.minimalHudKey,function(text,field)
         local value=text:gsub("%s","")
-        if Enum.KeyCode[value] and value~="C" and value~=opt.menuKeyName and value~=opt.holdKey then
+        if Enum.KeyCode[value] and value~="C" and value~=opt.menuKeyName then
             opt.minimalHudKey=value;savePreferences();field.Text=value
         else field.Text="Key conflict" end
     end)
@@ -2419,13 +2062,8 @@ page("Settings", function()
         opt.savedWalkSpeed=nil;opt.noclipEnabled=false;restoreCollisions()
         savePreferences();groupResetStatus.Text="Movement reset"
     end)
-    button("Reset targeting only",function()
-        opt.holdActive=false;opt.lockedTarget=nil;autoTarget=nil;opt.assistAccumulator=Vector2.zero
-        opt.autoTargetEnabled=false;opt.smoothAssistEnabled=false
-        savePreferences();groupResetStatus.Text="Targeting reset"
-    end)
     label("Emergency reset • does not erase favorite teleports or profiles",50)
-    local resetStatus=label("Turns off movement, targeting, hitbox and temporary weather effects.",48)
+    local resetStatus=label("Turns off movement, hitbox and temporary weather effects.",48)
     button("Emergency reset now",function()
         emergencyReset()
         quickFly.Text="Fly";quickHit.Text="Hit"
@@ -2436,7 +2074,7 @@ end)
 -- Optional, client-side player camera and cosmetic tools.
 -- None of these features send damage, inventory or remote requests.
 local playerTools={picked=nil,mode="Off",freecam=false,freePosition=nil,freeYaw=0,freePitch=0,
-    tracer=false,ghost=false,freezePreview=false,horns=nil,decor={},savedLocal={},
+    tracer=false,
     sessionStart=os.clock(),freeSpeed=45,antiAFK=false,following=false}
 local camera=workspace.CurrentCamera
 local originalCamera={type=nil,subject=nil,fov=nil}
@@ -2458,6 +2096,7 @@ local function resolvePlayer(query)
 end
 local function restoreCamera()
     camera=workspace.CurrentCamera or camera
+    ContextActionService:UnbindAction("WisteriaSpectateMovement")
     if not camera then return end
     camera.CameraType=Enum.CameraType.Custom
     local humanoid=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
@@ -2480,6 +2119,16 @@ local function setCameraMode(mode)
     end
     playerTools.mode=mode
     playerTools.freecam=(mode=="Freecam")
+    playerTools.following=false
+    -- Sink movement controls while watching a player or using Freecam.
+    -- Freecam still reads IsKeyDown, but the normal Roblox controller won't walk the avatar.
+    ContextActionService:BindActionAtPriority("WisteriaSpectateMovement",function()
+        return Enum.ContextActionResult.Sink
+    end,false,3000,Enum.KeyCode.W,Enum.KeyCode.A,Enum.KeyCode.S,Enum.KeyCode.D,
+        Enum.KeyCode.Space,Enum.KeyCode.LeftControl,Enum.KeyCode.RightControl,Enum.KeyCode.Up,
+        Enum.KeyCode.Down,Enum.KeyCode.Left,Enum.KeyCode.Right)
+    local ownHumanoid=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+    if ownHumanoid then ownHumanoid:Move(Vector3.zero,false) end
     if mode=="Freecam" then
         playerTools.freePosition=camera.CFrame.Position
         local look=camera.CFrame.LookVector
@@ -2499,6 +2148,10 @@ local tracerElapsed=0
 track(RunService.RenderStepped:Connect(function(dt)
     if not camera or camera~=workspace.CurrentCamera then camera=workspace.CurrentCamera end
     if not camera then return end
+    if playerTools.mode~="Off" then
+        local ownHumanoid=player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+        if ownHumanoid then ownHumanoid:Move(Vector3.zero,false) end
+    end
     if playerTools.mode=="First-person" then
         local head=playerTools.picked and playerTools.picked.Character and playerTools.picked.Character:FindFirstChild("Head")
         if head then camera.CFrame=head.CFrame else restoreCamera() end
@@ -2545,62 +2198,9 @@ track(UserInputService.InputChanged:Connect(function(input)
         playerTools.freePitch=math.clamp(playerTools.freePitch-input.Delta.Y*.003,-1.5,1.5)
     end
 end))
-local function setGhost(enabled)
-    playerTools.ghost=enabled
-    for part,original in pairs(playerTools.savedLocal) do
-        if part.Parent then pcall(function() part.LocalTransparencyModifier=original end) end
-        playerTools.savedLocal[part]=nil
-    end
-    if enabled and player.Character then
-        for _,item in ipairs(player.Character:GetDescendants()) do
-            if item:IsA("BasePart") then
-                playerTools.savedLocal[item]=item.LocalTransparencyModifier
-                item.LocalTransparencyModifier=.95
-            end
-        end
-    end
-end
 track(player.CharacterAdded:Connect(function()
-    restoreCamera();playerTools.savedLocal={}
-    if playerTools.ghost then task.defer(function() setGhost(true) end) end
+    restoreCamera()
 end))
-local function clearHorns()
-    for _,obj in ipairs(playerTools.decor) do if obj.Parent then obj:Destroy() end end
-    table.clear(playerTools.decor);playerTools.horns=nil
-end
-local catalogHorns={
-    ["Fiery Horns of the Netherworld"]=215718515,
-    ["Frozen Horns of the Frigid Planes"]=74891470,
-    ["Poisoned Horns of the Toxic Wasteland"]=1744060292,
-}
-local function makeHorns(style)
-    clearHorns()
-    local assetId=catalogHorns[style]
-    if not assetId then return false,"Unknown limited" end
-    local character=player.Character
-    local humanoid=character and character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return false,"Character unavailable" end
-    -- Some Roblox clients/executors restrict catalog asset loading. Fail visibly.
-    local ok,models=pcall(function() return game:GetObjects("rbxassetid://"..assetId) end)
-    if not ok or type(models)~="table" then return false,"Catalog asset loading is blocked" end
-    local accessory
-    for _,model in ipairs(models) do
-        if model:IsA("Accessory") then accessory=model
-        else accessory=model:FindFirstChildWhichIsA("Accessory",true) end
-        if accessory then
-            accessory.Parent=nil
-            break
-        end
-    end
-    for _,model in ipairs(models) do if model~=accessory then model:Destroy() end end
-    if not accessory then return false,"The catalog item did not provide an accessory" end
-    accessory.Name="WisteriaPreview_"..style
-    local equipped=pcall(function() humanoid:AddAccessory(accessory) end)
-    if not equipped then accessory:Destroy();return false,"Could not attach the accessory" end
-    playerTools.horns=style
-    table.insert(playerTools.decor,accessory)
-    return true,"Preview applied locally"
-end
 track(Players.PlayerRemoving:Connect(function(plr)
     if playerTools.picked==plr then playerTools.picked=nil;restoreCamera() end
 end))
@@ -2686,30 +2286,6 @@ page("Freecam",function()
     numericSlider("Freecam speed",10,150,playerTools.freeSpeed,5,function(v) playerTools.freeSpeed=v end)
     label("Your character stays where it is. Freecam does not make it invisible to other players.",58)
 end)
-page("Cosmetics",function()
-    label("Client-side avatar effects (other players may not see them).",42)
-    local ghostButton
-    ghostButton=button("Ghost appearance: "..(playerTools.ghost and "ON" or "OFF"),function()
-        setGhost(not playerTools.ghost)
-        ghostButton.Text="Ghost appearance: "..(playerTools.ghost and "ON" or "OFF")
-    end)
-    label("Local ghost effect only: other players still see your real avatar. This is not multiplayer invisibility.",58)
-    label("Roblox LIMITED horns • catalog designs, not generic shapes",45)
-    local hornStatus=label("Choose a limited below to preview it.",43)
-    for _,style in ipairs({
-        "Fiery Horns of the Netherworld",
-        "Frozen Horns of the Frigid Planes",
-        "Poisoned Horns of the Toxic Wasteland",
-    }) do
-        button(style,function()
-            local ok,message=makeHorns(style)
-            hornStatus.Text=ok and ("Equipped preview: "..style) or ("Can't load: "..message)
-        end)
-    end
-    button("Remove horns",clearHorns)
-    button("Restore my avatar visuals",function()setGhost(false);clearHorns();restoreCamera() end)
-    label("Limited horn loading is blocked in some games. If nothing appears, the game hasn't allowed the preview. It cannot grant or display unowned limiteds to everyone.",82)
-end)
 page("Session + Safety",function()
     local minutes=math.floor((os.clock()-playerTools.sessionStart)/60)
     label("Player: "..player.Name.." • Session: "..minutes.." min",40)
@@ -2721,7 +2297,7 @@ page("Session + Safety",function()
         afkButton.Text="Anti-AFK: "..(playerTools.antiAFK and "ON" or "OFF")
     end)
     button("Restore camera + character",function()
-        restoreCamera();setGhost(false);clearHorns();playerTools.tracer=false;playerTools.following=false
+        restoreCamera();playerTools.tracer=false;playerTools.following=false
     end)
     button("Rejoin current game",function()
         local ok,err=pcall(function()
@@ -2734,8 +2310,8 @@ page("Session + Safety",function()
 end)
 
 tabs[1].TextColor3=accent
-label("Wisteria Hub v3.5",36)
-label("Choose Main again to open Target Aim settings.",44)
+label("Wisteria Hub v3.6",36)
+label("Choose Main again to see the cleaned-up hub.",44)
 label(opt.menuKeyName.." or the floating Menu button: hide/show.",36)
 
 -- Drag by the title bar, with mouse or touch.
@@ -2802,10 +2378,7 @@ local function shutdown()
     stopped=true
     restoreCamera()
     playerTools.following=false
-    setGhost(false)
-    clearHorns()
     if tracerGui.Parent then tracerGui:Destroy() end
-    RunService:UnbindFromRenderStep(aimRenderBinding)
     for _,connection in ipairs(liveConnections) do connection:Disconnect() end
     restoreAllHitboxes()
     for plr in pairs(visuals) do cleanupVisual(plr) end
@@ -2817,8 +2390,6 @@ local function shutdown()
     setRain(false)
     if gui.Parent then gui:Destroy() end
     if rainGui.Parent then rainGui:Destroy() end
-    if moonGui.Parent then moonGui:Destroy() end
-    if butterflyFX.gui.Parent then butterflyFX.gui:Destroy() end
     if worldFX.folder.Parent then worldFX.folder:Destroy() end
     if quickGui.Parent then quickGui:Destroy() end
     if wheelGui.Parent then wheelGui:Destroy() end
@@ -2826,4 +2397,4 @@ local function shutdown()
     if toggleGui.Parent then toggleGui:Destroy() end
 end
 environment.PurrvotionCleanup=shutdown
-print("[Wisteria Hub] v3.5 ready")
+print("[Wisteria Hub] v3.6 ready")
